@@ -1,0 +1,8 @@
+*.class
+*.log
+.idea
+*.iml
+target
+metastore_db
+tmp
+dependency-reduced-pom.xml
