@@ -59,8 +59,7 @@ object CachedHiveWriters extends Logging {
   def getOrCreate(
       hiveEndPoint: HiveEndPoint,
       hiveOptions: HiveOptions,
-      @Nullable ugi: UserGroupInformation,
-      agentInfo: String): HiveWriter = {
+      @Nullable ugi: UserGroupInformation): HiveWriter = {
     val writer = cache.synchronized {
       val queue = cache.getOrElseUpdate(hiveEndPoint, new mutable.Queue[HiveWriter]())
       if (queue.isEmpty) {
@@ -70,7 +69,7 @@ object CachedHiveWriters extends Logging {
       }
     }
 
-    writer.getOrElse(new HiveWriter(hiveEndPoint, hiveOptions, ugi, agentInfo))
+    writer.getOrElse(new HiveWriter(hiveEndPoint, hiveOptions, ugi))
   }
 
   def recycle(hiveWriter: HiveWriter): Unit = {

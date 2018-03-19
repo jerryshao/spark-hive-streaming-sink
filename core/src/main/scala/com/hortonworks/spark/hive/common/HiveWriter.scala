@@ -28,18 +28,17 @@ import com.hortonworks.spark.hive.utils.Logging
 class HiveWriter(
     val hiveEndPoint: HiveEndPoint,
     hiveOptions: HiveOptions,
-    ugi: UserGroupInformation,
-    agentInfo: String) extends Logging {
+    ugi: UserGroupInformation) extends Logging {
 
   private val hiveConf = new HiveConf
   private val txnTimeout =
     hiveConf.getTimeVar(HiveConf.ConfVars.HIVE_TXN_TIMEOUT, TimeUnit.MILLISECONDS)
 
   private val connection =
-    hiveEndPoint.newConnection(hiveOptions.autoCreatePartitions, hiveConf, ugi, agentInfo)
+    hiveEndPoint.newConnection(hiveOptions.autoCreatePartitions, hiveConf, ugi)
 
   // TODO. for now we only support to write JSON String to Hive Streaming.
-  private val writer = new StrictJsonWriter(hiveEndPoint, hiveConf, connection)
+  private val writer = new StrictJsonWriter(hiveEndPoint, hiveConf)
 
   private var txnBatch: TransactionBatch = null
 

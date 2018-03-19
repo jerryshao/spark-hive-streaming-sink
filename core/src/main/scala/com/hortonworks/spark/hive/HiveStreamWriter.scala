@@ -88,11 +88,10 @@ class HiveStreamDataWriter(
     val partitionValues = partitionCols.map { col => row.getAs[String](col) }
     val hiveEndPoint = new HiveEndPoint(
       hiveOptions.metastoreUri, hiveOptions.dbName, hiveOptions.tableName, partitionValues.asJava)
-    val agentInfo = s"$partitionId-$attemptNumber-${UUID.randomUUID().toString}"
 
     def getNewWriter(): HiveWriter = {
       val writer = CachedHiveWriters.getOrCreate(
-        hiveEndPoint, hiveOptions, hiveOptions.getUGI(), agentInfo)
+        hiveEndPoint, hiveOptions, hiveOptions.getUGI())
       writer.beginTransaction()
       writer
     }
