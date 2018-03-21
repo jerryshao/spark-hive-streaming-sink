@@ -44,6 +44,28 @@
     <module>core</module>
   </modules>
 
+  <repositories>
+
+    <repository>
+      <id>hortonworks-repo</id>
+      <name>Hortonworks Repository</name>
+      <url>http://repo.hortonworks.com/content/repositories/releases/</url>
+      <releases>
+        <enabled>true</enabled>
+      </releases>
+      <snapshots>
+        <enabled>false</enabled>
+      </snapshots>
+    </repository>
+
+    <repository>
+      <id>hortonworks-snapshot-repo</id>
+      <name>Hortonworks Snapshot Repository</name>
+      <url>http://nexus-private.hortonworks.com/nexus/content/groups/public/</url>
+    </repository>
+
+  </repositories>
+
   <dependencies>
 
     <dependency>
@@ -81,6 +103,22 @@
         </exclusion>
         <exclusion>
           <groupId>org.apache.hbase</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+
+    <dependency>
+      <groupId>org.apache.hive.hcatalog</groupId>
+      <artifactId>hive-hcatalog-core</artifactId>
+      <version>${hive.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>org.slf4j</groupId>
+          <artifactId>slf4j-log4j12</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.apache.hadoop</groupId>
           <artifactId>*</artifactId>
         </exclusion>
       </exclusions>
@@ -392,14 +430,14 @@
   <profiles>
 
     <profile>
-      <id>integration-test</id>
+      <id>hortonworks</id>
       <activation>
         <property>
-          <name>integration-test</name>
+          <name>hortonworks</name>
         </property>
       </activation>
       <properties>
-        <integration.test.enabled>true</integration.test.enabled>
+        <hive.version>1.2.1000.2.6.4.0-91</hive.version>
       </properties>
     </profile>
 

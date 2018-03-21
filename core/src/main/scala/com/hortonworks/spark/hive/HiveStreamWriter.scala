@@ -17,7 +17,7 @@
 
 package com.hortonworks.spark.hive
 
-import java.util.UUID
+import java.util.{Map => JMap}
 import java.util.concurrent.{Executors, TimeUnit}
 
 import scala.collection.JavaConverters._
@@ -41,7 +41,7 @@ class HiveStreamWriter(
   extends StreamWriter {
 
   override def createWriterFactory(): DataWriterFactory[Row] = {
-    new HiveStreamDataWriterFactory(columnNames, partitionCols, dataSourceOptions)
+    new HiveStreamDataWriterFactory(columnNames, partitionCols, dataSourceOptions.asMap())
   }
 
   override def commit(epochId: Long, writerCommitMessages: Array[WriterCommitMessage]): Unit = {}
@@ -52,7 +52,7 @@ class HiveStreamWriter(
 class HiveStreamDataWriterFactory(
     columnName: Seq[String],
     partitionCols: Seq[String],
-    dataSourceOptions: DataSourceOptions) extends DataWriterFactory[Row] {
+    dataSourceOptionsMap: JMap[String, String]) extends DataWriterFactory[Row] {
 
   override def createDataWriter(partitionId: Int, attemptNumber: Int): DataWriter[Row] = {
     new HiveStreamDataWriter(
@@ -60,7 +60,7 @@ class HiveStreamDataWriterFactory(
       attemptNumber,
       columnName,
       partitionCols,
-      dataSourceOptions)
+      dataSourceOptionsMap)
   }
 }
 
@@ -69,11 +69,12 @@ class HiveStreamDataWriter(
     attemptNumber: Int,
     columnName: Seq[String],
     partitionCols: Seq[String],
-    dataSourceOptions: DataSourceOptions) extends DataWriter[Row] with Logging {
+    dataSourceOptionsMap: JMap[String, String]) extends DataWriter[Row] with Logging {
 
   private implicit def formats = DefaultFormats
 
-  private val hiveOptions = HiveOptions.fromDataSourceOptions(dataSourceOptions)
+  private val hiveOptions =
+    HiveOptions.fromDataSourceOptions(new DataSourceOptions(dataSourceOptionsMap))
 
   private val inUseWriters = new mutable.HashMap[HiveEndPoint, HiveWriter]()
 
@@ -97,10 +98,10 @@ class HiveStreamDataWriter(
     }
     val writer = inUseWriters.getOrElseUpdate(hiveEndPoint, getNewWriter())
 
-    val jRow = Extraction.decompose(columnName.map { col => col -> row.getAs(col) })
+    val jRow = Extraction.decompose(columnName.map { col => col -> row.getAs(col) }.toMap)
     val jString = compact(render(jRow))
 
-    logDebug(s"Write JSON row ${pretty(render(jRow))} into Hive Streaming")
+    logInfo(s"Write JSON row ${pretty(render(jRow))} into Hive Streaming")
     writer.write(jString.getBytes("UTF-8"))
 
     if (writer.totalRecords() >= hiveOptions.batchSize) {

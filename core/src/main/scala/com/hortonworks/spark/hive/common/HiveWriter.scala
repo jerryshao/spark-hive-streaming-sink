@@ -54,7 +54,7 @@ class HiveWriter(
   private var isTransactionBegin = false
 
   def beginTransaction(): Unit = {
-    if (txnBatch.remainingTransactions() == 0) {
+    if (txnBatch != null && txnBatch.remainingTransactions() == 0) {
       txnBatch.close()
       txnBatch = null
     }
