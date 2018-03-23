@@ -18,21 +18,13 @@
 package com.hortonworks.spark.hive
 
 import java.util.{Map => JMap}
-import java.util.concurrent.{Executors, TimeUnit}
 
-import scala.collection.JavaConverters._
-import scala.collection.mutable
-import org.apache.hive.hcatalog.streaming.HiveEndPoint
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.sources.v2.DataSourceOptions
 import org.apache.spark.sql.sources.v2.writer.{DataWriter, DataWriterFactory, WriterCommitMessage}
 import org.apache.spark.sql.sources.v2.writer.streaming.StreamWriter
-import org.json4s.{DefaultFormats, Extraction}
-import org.json4s.jackson.JsonMethods._
-import com.hortonworks.spark.hive.common.{CachedHiveWriters, HiveOptions, HiveWriter}
-import com.hortonworks.spark.hive.utils.Logging
 
-case object HiveStreamWriterCommitMessage extends WriterCommitMessage
+import com.hortonworks.spark.hive.utils.HiveIsolatedClassLoader
 
 class HiveStreamWriter(
     columnNames: Seq[String],
@@ -55,78 +47,17 @@ class HiveStreamDataWriterFactory(
     dataSourceOptionsMap: JMap[String, String]) extends DataWriterFactory[Row] {
 
   override def createDataWriter(partitionId: Int, attemptNumber: Int): DataWriter[Row] = {
-    new HiveStreamDataWriter(
-      partitionId,
-      attemptNumber,
-      columnName,
-      partitionCols,
-      dataSourceOptionsMap)
-  }
-}
-
-class HiveStreamDataWriter(
-    partitionId: Int,
-    attemptNumber: Int,
-    columnName: Seq[String],
-    partitionCols: Seq[String],
-    dataSourceOptionsMap: JMap[String, String]) extends DataWriter[Row] with Logging {
-
-  private implicit def formats = DefaultFormats
-
-  private val hiveOptions =
-    HiveOptions.fromDataSourceOptions(new DataSourceOptions(dataSourceOptionsMap))
-
-  private val inUseWriters = new mutable.HashMap[HiveEndPoint, HiveWriter]()
-
-  private val executorService = Executors.newSingleThreadScheduledExecutor()
-  executorService.scheduleAtFixedRate(new Runnable {
-    override def run(): Unit = {
-      inUseWriters.foreach(_._2.heartbeat())
+    val restoredClassLoader = Thread.currentThread().getContextClassLoader
+    try {
+      val currentClassLoader = HiveIsolatedClassLoader.isolatedClassLoader()
+      Thread.currentThread().setContextClassLoader(currentClassLoader)
+      currentClassLoader.loadClass(classOf[HiveStreamDataWriter].getName)
+        .getConstructors.head
+        .newInstance(partitionId: java.lang.Integer, attemptNumber: java.lang.Integer,
+          columnName, partitionCols, dataSourceOptionsMap, restoredClassLoader, currentClassLoader)
+        .asInstanceOf[DataWriter[Row]]
+    } finally {
+      Thread.currentThread().setContextClassLoader(restoredClassLoader)
     }
-  }, 10L, 10L, TimeUnit.SECONDS)
-
-  override def write(row: Row): Unit = {
-    val partitionValues = partitionCols.map { col => row.getAs[String](col) }
-    val hiveEndPoint = new HiveEndPoint(
-      hiveOptions.metastoreUri, hiveOptions.dbName, hiveOptions.tableName, partitionValues.asJava)
-
-    def getNewWriter(): HiveWriter = {
-      val writer = CachedHiveWriters.getOrCreate(
-        hiveEndPoint, hiveOptions, hiveOptions.getUGI())
-      writer.beginTransaction()
-      writer
-    }
-    val writer = inUseWriters.getOrElseUpdate(hiveEndPoint, getNewWriter())
-
-    val jRow = Extraction.decompose(columnName.map { col => col -> row.getAs(col) }.toMap)
-    val jString = compact(render(jRow))
-
-    logInfo(s"Write JSON row ${pretty(render(jRow))} into Hive Streaming")
-    writer.write(jString.getBytes("UTF-8"))
-
-    if (writer.totalRecords() >= hiveOptions.batchSize) {
-      writer.commitTransaction()
-      writer.beginTransaction()
-    }
-  }
-
-  override def abort(): Unit = {
-    inUseWriters.foreach { case (_, writer) =>
-      writer.abortTransaction()
-      CachedHiveWriters.recycle(writer)
-    }
-    inUseWriters.clear()
-    executorService.shutdown()
-  }
-
-  override def commit(): WriterCommitMessage = {
-    inUseWriters.foreach { case (_, writer) =>
-      writer.commitTransaction()
-        CachedHiveWriters.recycle(writer)
-    }
-    inUseWriters.clear()
-    executorService.shutdown()
-
-    HiveStreamWriterCommitMessage
   }
 }
