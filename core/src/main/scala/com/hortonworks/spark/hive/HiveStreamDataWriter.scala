@@ -17,13 +17,12 @@
 
 package com.hortonworks.spark.hive
 
-import java.util.{Map => JMap}
+import java.util.{Map => JMap, List => JList}
 import java.util.concurrent.{Executors, TimeUnit}
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 
-import org.apache.hive.hcatalog.streaming.HiveEndPoint
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.sources.v2.DataSourceOptions
 import org.apache.spark.sql.sources.v2.writer.{DataWriter, WriterCommitMessage}
@@ -49,7 +48,7 @@ class HiveStreamDataWriter(
   private val hiveOptions =
     HiveOptions.fromDataSourceOptions(new DataSourceOptions(dataSourceOptionsMap))
 
-  private val inUseWriters = new mutable.HashMap[HiveEndPoint, HiveWriter]()
+  private val inUseWriters = new mutable.HashMap[Object, HiveWriter]()
 
   private val executorService = Executors.newSingleThreadScheduledExecutor()
   executorService.scheduleAtFixedRate(new Runnable {
@@ -60,23 +59,18 @@ class HiveStreamDataWriter(
     }
   }, 10L, 10L, TimeUnit.SECONDS)
 
-  private def withIsolatedClassLoad[T](func: => T): T = {
-    try {
-      Thread.currentThread().setContextClassLoader(isolatedClassLoader)
-      func
-    } finally {
-      Thread.currentThread().setContextClassLoader(initClassLoader)
-    }
-  }
-
-  override def write(row: Row): Unit = withIsolatedClassLoad {
+  override def write(row: Row): Unit = {
     val partitionValues = partitionCols.map { col => row.getAs[String](col) }
-    val hiveEndPoint = new HiveEndPoint(
-      hiveOptions.metastoreUri, hiveOptions.dbName, hiveOptions.tableName, partitionValues.asJava)
+    val hiveEndPoint =
+      Class.forName("org.apache.hive.hcatalog.streaming.HiveEndPoint", true, isolatedClassLoader)
+      .getConstructor(classOf[String], classOf[String], classOf[String], classOf[JList[String]])
+      .newInstance(
+        hiveOptions.metastoreUri, hiveOptions.dbName, hiveOptions.tableName, partitionValues.asJava)
+      .asInstanceOf[Object]
 
     def getNewWriter(): HiveWriter = {
       val writer = CachedHiveWriters.getOrCreate(
-        hiveEndPoint, hiveOptions, hiveOptions.getUGI())
+        hiveEndPoint, hiveOptions, hiveOptions.getUGI(), isolatedClassLoader)
       writer.beginTransaction()
       writer
     }
@@ -94,23 +88,31 @@ class HiveStreamDataWriter(
     }
   }
 
-  override def abort(): Unit = withIsolatedClassLoad {
-    inUseWriters.foreach { case (_, writer) =>
-      writer.abortTransaction()
-      CachedHiveWriters.recycle(writer)
+  override def abort(): Unit = {
+    try {
+      inUseWriters.foreach { case (_, writer) =>
+        writer.abortTransaction()
+        CachedHiveWriters.recycle(writer)
+      }
+      inUseWriters.clear()
+      executorService.shutdown()
+    } finally {
+      Thread.currentThread().setContextClassLoader(initClassLoader)
     }
-    inUseWriters.clear()
-    executorService.shutdown()
   }
 
-  override def commit(): WriterCommitMessage = withIsolatedClassLoad {
-    inUseWriters.foreach { case (_, writer) =>
-      writer.commitTransaction()
-      CachedHiveWriters.recycle(writer)
-    }
-    inUseWriters.clear()
-    executorService.shutdown()
+  override def commit(): WriterCommitMessage = {
+    try {
+      inUseWriters.foreach { case (_, writer) =>
+        writer.commitTransaction()
+        CachedHiveWriters.recycle(writer)
+      }
+      inUseWriters.clear()
+      executorService.shutdown()
 
-    HiveStreamWriterCommitMessage
+      HiveStreamWriterCommitMessage
+    } finally {
+      Thread.currentThread().setContextClassLoader(initClassLoader)
+    }
   }
 }

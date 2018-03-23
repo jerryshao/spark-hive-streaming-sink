@@ -24,7 +24,6 @@ import scala.collection.mutable
 import scala.util.control.NonFatal
 
 import org.apache.hadoop.security.UserGroupInformation
-import org.apache.hive.hcatalog.streaming.HiveEndPoint
 
 import com.hortonworks.spark.hive.utils.Logging
 
@@ -32,7 +31,7 @@ object CachedHiveWriters extends Logging {
 
   private val cacheExpireTimeout: Long = TimeUnit.MINUTES.toMillis(10)
 
-  private val cache = new mutable.HashMap[HiveEndPoint, mutable.Queue[HiveWriter]]()
+  private val cache = new mutable.HashMap[Object, mutable.Queue[HiveWriter]]()
 
   private val executorService = Executors.newSingleThreadScheduledExecutor()
   executorService.scheduleAtFixedRate(new Runnable {
@@ -57,9 +56,10 @@ object CachedHiveWriters extends Logging {
   })
 
   def getOrCreate(
-      hiveEndPoint: HiveEndPoint,
+      hiveEndPoint: Object,
       hiveOptions: HiveOptions,
-      @Nullable ugi: UserGroupInformation): HiveWriter = {
+      @Nullable ugi: UserGroupInformation,
+      isolatedClasLoader: ClassLoader): HiveWriter = {
     val writer = cache.synchronized {
       val queue = cache.getOrElseUpdate(hiveEndPoint, new mutable.Queue[HiveWriter]())
       if (queue.isEmpty) {
@@ -69,7 +69,7 @@ object CachedHiveWriters extends Logging {
       }
     }
 
-    writer.getOrElse(new HiveWriter(hiveEndPoint, hiveOptions, ugi))
+    writer.getOrElse(new HiveWriter(hiveEndPoint, hiveOptions, ugi, isolatedClasLoader))
   }
 
   def recycle(hiveWriter: HiveWriter): Unit = {

@@ -59,17 +59,14 @@ object HiveIsolatedClassLoader extends Logging {
     val urls = getAddedURLs(parentClassLoader)
     new HiveIsolatedClassLoader(urls, parentClassLoader)
   }
-
 }
 
 class HiveIsolatedClassLoader(urls: Array[URL], baseClassLoader: ClassLoader)
     extends URLClassLoader(urls, ClassLoader.getSystemClassLoader.getParent.getParent)
     with Logging {
 
-  logInfo(s"${urls.mkString(",")}")
   override def loadClass(name: String, resolve: Boolean): Class[_] = {
     val loaded = findLoadedClass(name)
-    logInfo(s"find loaded class $name is loaded $loaded")
     if (loaded == null) doLoadClass(name, resolve) else loaded
   }
 
@@ -83,10 +80,9 @@ class HiveIsolatedClassLoader(urls: Array[URL], baseClassLoader: ClassLoader)
 
   def doLoadClass(name: String, resolve: Boolean): Class[_] = {
     if (isHiveClass(name)) {
-      logInfo(s"hive class: $name - ${super.getResource(classToPath(name))}")
+      logTrace(s"hive class: $name - ${super.getResource(classToPath(name))}")
       super.loadClass(name, resolve)
     } else {
-      logInfo(s"shared class: $name")
       try {
         baseClassLoader.loadClass(name)
       } catch {
@@ -103,20 +99,3 @@ class HiveIsolatedClassLoader(urls: Array[URL], baseClassLoader: ClassLoader)
   private def classToPath(name: String): String =
     name.replaceAll("\\.", "/") + ".class"
 }
-
-class ParentClassLoader(parent: ClassLoader) extends ClassLoader(parent) {
-
-  override def findClass(name: String): Class[_] = {
-    super.findClass(name)
-  }
-
-  override def loadClass(name: String): Class[_] = {
-    super.loadClass(name)
-  }
-
-  override def loadClass(name: String, resolve: Boolean): Class[_] = {
-    super.loadClass(name, resolve)
-  }
-}
-
-

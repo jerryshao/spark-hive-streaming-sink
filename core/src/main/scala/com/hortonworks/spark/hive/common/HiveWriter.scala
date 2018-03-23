@@ -17,30 +17,39 @@
 
 package com.hortonworks.spark.hive.common
 
-import java.util.concurrent.TimeUnit
-
-import org.apache.hadoop.hive.conf.HiveConf
 import org.apache.hadoop.security.UserGroupInformation
-import org.apache.hive.hcatalog.streaming._
 
 import com.hortonworks.spark.hive.utils.Logging
 
 class HiveWriter(
-    val hiveEndPoint: HiveEndPoint,
+    val hiveEndPoint: Object,
     hiveOptions: HiveOptions,
-    ugi: UserGroupInformation) extends Logging {
+    ugi: UserGroupInformation,
+    isolatedClassLoader: ClassLoader) extends Logging {
 
-  private val hiveConf = new HiveConf
-  private val txnTimeout =
-    hiveConf.getTimeVar(HiveConf.ConfVars.HIVE_TXN_TIMEOUT, TimeUnit.MILLISECONDS)
+  private val hiveConf =
+    Class.forName("org.apache.hadoop.hive.conf.HiveConf", true, isolatedClassLoader)
+    .newInstance()
+    .asInstanceOf[Object]
+  private val txnTimeout = 300 * 1000L
 
-  private val connection =
-    hiveEndPoint.newConnection(hiveOptions.autoCreatePartitions, hiveConf, ugi)
+  private val connection = hiveEndPoint.getClass.getMethod(
+    "newConnection",
+    classOf[Boolean],
+    Class.forName("org.apache.hadoop.hive.conf.HiveConf", true, isolatedClassLoader),
+    classOf[UserGroupInformation])
+    .invoke(hiveEndPoint, hiveOptions.autoCreatePartitions: java.lang.Boolean, hiveConf, ugi)
 
   // TODO. for now we only support to write JSON String to Hive Streaming.
-  private val writer = new StrictJsonWriter(hiveEndPoint, hiveConf)
+  private val writer =
+    Class.forName("org.apache.hive.hcatalog.streaming.StrictJsonWriter", true, isolatedClassLoader)
+    .getConstructor(
+      Class.forName("org.apache.hive.hcatalog.streaming.HiveEndPoint", true, isolatedClassLoader),
+      Class.forName("org.apache.hadoop.hive.conf.HiveConf", true, isolatedClassLoader))
+    .newInstance(hiveEndPoint, hiveConf)
+    .asInstanceOf[Object]
 
-  private var txnBatch: TransactionBatch = null
+  private var txnBatch: Object = null
 
   // Timestamp to track the activity of this HiveWriter
   private var _lastUsed: Long = System.currentTimeMillis()
@@ -54,17 +63,20 @@ class HiveWriter(
   private var isTransactionBegin = false
 
   def beginTransaction(): Unit = {
-    if (txnBatch != null && txnBatch.remainingTransactions() == 0) {
-      txnBatch.close()
+    if (txnBatch != null && call[Int](txnBatch, "remainingTransactins") == 0) {
+      call[Unit](txnBatch, "close")
       txnBatch = null
     }
 
     if (txnBatch == null) {
-      txnBatch = connection.fetchTransactionBatch(hiveOptions.txnPerBatch, writer)
+      txnBatch = call[Object](connection, "fetchTransactionBatch", Seq(classOf[Int],
+        Class.forName(
+          "org.apache.hive.hcatalog.streaming.RecordWriter", true, isolatedClassLoader)),
+        Seq(hiveOptions.txnPerBatch: java.lang.Integer, writer))
       _lastCreated = System.currentTimeMillis()
     }
 
-    txnBatch.beginNextTransaction()
+    call[Unit](txnBatch, "beginNextTransaction")
     isTransactionBegin = true
     _totalRecords = 0
 
@@ -75,7 +87,7 @@ class HiveWriter(
     require(txnBatch != null, "current transaction is not initialized before writing")
     require(isTransactionBegin, "current transaction is not beginning")
 
-    txnBatch.write(record)
+    call[Unit](txnBatch, "write", Seq(classOf[Array[Byte]]), Seq(record))
     _totalRecords += 1
   }
 
@@ -83,7 +95,7 @@ class HiveWriter(
     require(txnBatch != null, "current transaction is not initialized before committing")
     require(isTransactionBegin, "current transaction is not beginning")
 
-    txnBatch.commit()
+    call[Unit](txnBatch, "commit")
 
     _lastUsed = System.currentTimeMillis()
     isTransactionBegin = false
@@ -95,7 +107,7 @@ class HiveWriter(
     _totalRecords = 0
 
     if (txnBatch != null) {
-      txnBatch.abort()
+      call[Unit](txnBatch, "abort")
     }
   }
 
@@ -104,11 +116,11 @@ class HiveWriter(
     _totalRecords = 0
 
     if (txnBatch != null) {
-      txnBatch.commit()
-      txnBatch.close()
+      call[Unit](txnBatch, "commit")
+      call[Unit](txnBatch, "close")
     }
 
-    connection.close()
+    call[Unit](connection, "close")
   }
 
   def lastUsed(): Long = _lastUsed
@@ -118,8 +130,18 @@ class HiveWriter(
   def heartbeat(): Unit = {
     if (System.currentTimeMillis() - _lastCreated > txnTimeout / 2) {
       if (txnBatch != null) {
-        txnBatch.heartbeat()
+        call[Unit](txnBatch, "heartbeat")
       }
     }
+  }
+
+  private def call[T](
+      obj: Object,
+      method: String,
+      types: Seq[Class[_]] = Seq.empty,
+      params: Seq[Object] = Seq.empty): T = {
+    val mtd = obj.getClass.getMethod(method, types: _*)
+    mtd.setAccessible(true)
+    mtd.invoke(obj, params: _*).asInstanceOf[T]
   }
 }
