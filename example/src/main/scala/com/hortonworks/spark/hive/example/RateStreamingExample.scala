@@ -19,56 +19,54 @@ package com.hortonworks.spark.hive.example
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.streaming.Trigger
 
 /**
- * A Hive Streaming example to ingest data from socket and push into hive table.
+ * A Hive Streaming example to ingest data from rate stream and push into hive table.
  *
  * Assumed HIVE table Schema:
- * create table alerts ( id int , msg string )
- *    partitioned by (continent string, country string)
- *    clustered by (id) into 5 buckets
+ * create table rate (value bigint)
+ *    clustered by (value) into 5 buckets
  *    stored as orc tblproperties("transactional"="true");
  */
-object HiveStreamingExample {
+object RateStreamingExample {
 
   def main(args: Array[String]): Unit = {
-    if (args.length != 3) {
+    if (args.length < 1 || args.length > 2) {
       // scalastyle:off println
-      System.err.println(s"Usage: HiveStreamingExample <socket host> <socket port> <metastore uri>")
+      System.err.println(s"Usage: RateStreamingExample <metastore uri> [continuous?]")
       // scalastyle:on println
       System.exit(1)
     }
 
-    val Array(host, port, metastoreUri) = args
+    val metastoreUri = args(0)
+    val continuous = if (args.length == 2) {
+      args(1) == "continuous"
+    } else {
+      false
+    }
 
     val sparkConf = new SparkConf()
       .set("spark.sql.streaming.checkpointLocation", "./checkpoint")
     val sparkSession = SparkSession.builder()
-      .appName("HiveStreamingExample")
+      .appName("RateStreamingExample")
       .config(sparkConf)
       .enableHiveSupport()
       .getOrCreate()
 
-    import sparkSession.implicits._
-
-    val socket = sparkSession.readStream
-      .format("socket")
-      .options(Map("host" -> host, "port" -> port))
+    val rate = sparkSession.readStream
+      .format("rate")
+      .option("rowsPerSecond", "1")
       .load()
-      .as[String]
 
-    val query = socket.map { s =>
-      val records = s.split(",")
-      assert(records.length >= 4)
-      (records(0).toInt, records(1), records(2), records(3))
-    }
-      .selectExpr("_1 as id", "_2 as msg", "_3 as continent", "_4 as country")
+    val query = rate.select("value")
       .writeStream
       .format("hive-streaming")
       .option("metastore", metastoreUri)
       .option("db", "default")
-      .option("table", "alerts")
-      .queryName("socket-hive-streaming")
+      .option("table", "rate")
+      .queryName("rate-hive-streaming")
+      .trigger(if (continuous) Trigger.Continuous(3000L) else Trigger.ProcessingTime(3000L))
       .start()
 
     query.awaitTermination()

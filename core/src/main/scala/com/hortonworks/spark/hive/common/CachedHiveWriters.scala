@@ -21,6 +21,7 @@ import java.util.concurrent.{Executors, TimeUnit}
 import javax.annotation.Nullable
 
 import scala.collection.mutable
+import scala.util.Try
 import scala.util.control.NonFatal
 
 import org.apache.hadoop.security.UserGroupInformation
@@ -36,11 +37,7 @@ object CachedHiveWriters extends Logging {
   private val executorService = Executors.newSingleThreadScheduledExecutor()
   executorService.scheduleAtFixedRate(new Runnable {
     override def run(): Unit = {
-      try {
-        expireOldestWriters()
-      } catch {
-        case NonFatal(e) => logWarn("Fail to expire oldest writers", e)
-      }
+      expireOldestWriters()
     }
   }, 10L, 10L, TimeUnit.MINUTES)
 
@@ -50,7 +47,7 @@ object CachedHiveWriters extends Logging {
         clear()
         executorService.shutdown()
       } catch {
-        case NonFatal(e) => logWarn("Fail to clear all writers", e)
+        case NonFatal(e) => // swallow exceptions
       }
     }
   })
@@ -59,8 +56,8 @@ object CachedHiveWriters extends Logging {
       hiveEndPoint: Object,
       hiveOptions: HiveOptions,
       @Nullable ugi: UserGroupInformation,
-      isolatedClasLoader: ClassLoader): HiveWriter = {
-    val writer = cache.synchronized {
+      isolatedClassLoader: ClassLoader): HiveWriter = {
+    val writer = CachedHiveWriters.synchronized {
       val queue = cache.getOrElseUpdate(hiveEndPoint, new mutable.Queue[HiveWriter]())
       if (queue.isEmpty) {
         None
@@ -69,11 +66,11 @@ object CachedHiveWriters extends Logging {
       }
     }
 
-    writer.getOrElse(new HiveWriter(hiveEndPoint, hiveOptions, ugi, isolatedClasLoader))
+    writer.getOrElse(new HiveWriter(hiveEndPoint, hiveOptions, ugi, isolatedClassLoader))
   }
 
   def recycle(hiveWriter: HiveWriter): Unit = {
-    cache.synchronized {
+    CachedHiveWriters.synchronized {
       cache.getOrElseUpdate(hiveWriter.hiveEndPoint, new mutable.Queue[HiveWriter]())
         .enqueue(hiveWriter)
     }
@@ -83,7 +80,7 @@ object CachedHiveWriters extends Logging {
     val currentTime = System.currentTimeMillis()
     val expiredWriters = new mutable.ArrayBuffer[HiveWriter]()
 
-    cache.synchronized {
+    CachedHiveWriters.synchronized {
       val emptyKeys = cache.filter { case (_, queue) =>
         while (queue.nonEmpty) {
           if (queue.head.lastUsed() + cacheExpireTimeout < currentTime) {
@@ -96,18 +93,30 @@ object CachedHiveWriters extends Logging {
       emptyKeys.foreach { k => cache.remove(k) }
     }
 
-    expiredWriters.foreach { _.close() }
+    expiredWriters.foreach { w =>
+      if (Try { w.close() }.isFailure) {
+        logWarn("Failed to close writer")
+      } else {
+        logInfo(s"Closed expired writer $w")
+      }
+    }
   }
 
   private def clear(): Unit = {
     val unusedWriters = new mutable.ArrayBuffer[HiveWriter]()
 
-    cache.synchronized {
+    CachedHiveWriters.synchronized {
       cache.foreach { case (_, queue) =>
         queue.foreach(unusedWriters.append(_))
       }
     }
 
-    unusedWriters.foreach(_.close())
+    unusedWriters.foreach { w =>
+      if (Try { w.close() }.isFailure) {
+        logWarn("Failed to close writer")
+      } else {
+        logInfo(s"Closed writer $w")
+      }
+    }
   }
 }

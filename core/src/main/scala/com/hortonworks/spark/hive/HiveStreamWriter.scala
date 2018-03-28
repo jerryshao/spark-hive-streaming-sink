@@ -49,12 +49,16 @@ class HiveStreamDataWriterFactory(
   override def createDataWriter(partitionId: Int, attemptNumber: Int): DataWriter[Row] = {
     val restoredClassLoader = Thread.currentThread().getContextClassLoader
     val currentClassLoader = HiveIsolatedClassLoader.isolatedClassLoader()
-    Thread.currentThread().setContextClassLoader(currentClassLoader)
+    try {
+      Thread.currentThread().setContextClassLoader(currentClassLoader)
 
-    currentClassLoader.loadClass(classOf[HiveStreamDataWriter].getName)
-      .getConstructors.head
-      .newInstance(partitionId: java.lang.Integer, attemptNumber: java.lang.Integer,
-        columnName, partitionCols, dataSourceOptionsMap, restoredClassLoader, currentClassLoader)
-      .asInstanceOf[DataWriter[Row]]
+      currentClassLoader.loadClass(classOf[HiveStreamDataWriter].getName)
+        .getConstructors.head
+        .newInstance(partitionId: java.lang.Integer, attemptNumber: java.lang.Integer,
+          columnName, partitionCols, dataSourceOptionsMap, restoredClassLoader, currentClassLoader)
+        .asInstanceOf[DataWriter[Row]]
+    } finally {
+      Thread.currentThread().setContextClassLoader(restoredClassLoader)
+    }
   }
 }

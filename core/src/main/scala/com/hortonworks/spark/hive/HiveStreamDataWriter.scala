@@ -59,7 +59,16 @@ class HiveStreamDataWriter(
     }
   }, 10L, 10L, TimeUnit.SECONDS)
 
-  override def write(row: Row): Unit = {
+  private def withClassLoader[T](func: => T): T = {
+    try {
+      Thread.currentThread().setContextClassLoader(isolatedClassLoader)
+      func
+    } finally {
+      Thread.currentThread().setContextClassLoader(initClassLoader)
+    }
+  }
+
+  override def write(row: Row): Unit = withClassLoader {
     val partitionValues = partitionCols.map { col => row.getAs[String](col) }
     val hiveEndPoint =
       Class.forName("org.apache.hive.hcatalog.streaming.HiveEndPoint", true, isolatedClassLoader)
@@ -88,31 +97,23 @@ class HiveStreamDataWriter(
     }
   }
 
-  override def abort(): Unit = {
-    try {
-      inUseWriters.foreach { case (_, writer) =>
-        writer.abortTransaction()
-        CachedHiveWriters.recycle(writer)
-      }
-      inUseWriters.clear()
-      executorService.shutdown()
-    } finally {
-      Thread.currentThread().setContextClassLoader(initClassLoader)
+  override def abort(): Unit = withClassLoader {
+    inUseWriters.foreach { case (_, writer) =>
+      writer.abortTransaction()
+      CachedHiveWriters.recycle(writer)
     }
+    inUseWriters.clear()
+    executorService.shutdown()
   }
 
-  override def commit(): WriterCommitMessage = {
-    try {
-      inUseWriters.foreach { case (_, writer) =>
-        writer.commitTransaction()
-        CachedHiveWriters.recycle(writer)
-      }
-      inUseWriters.clear()
-      executorService.shutdown()
-
-      HiveStreamWriterCommitMessage
-    } finally {
-      Thread.currentThread().setContextClassLoader(initClassLoader)
+  override def commit(): WriterCommitMessage = withClassLoader {
+    inUseWriters.foreach { case (_, writer) =>
+      writer.commitTransaction()
+      CachedHiveWriters.recycle(writer)
     }
+    inUseWriters.clear()
+    executorService.shutdown()
+
+    HiveStreamWriterCommitMessage
   }
 }

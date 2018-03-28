@@ -106,6 +106,14 @@
           <groupId>org.apache.hbase</groupId>
           <artifactId>*</artifactId>
         </exclusion>
+        <exclusion>
+          <groupId>org.apache.hive</groupId>
+          <artifactId>hive-llap-tez</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.apache.hive</groupId>
+          <artifactId>hive-llap-server</artifactId>
+        </exclusion>
       </exclusions>
     </dependency>
 
@@ -438,7 +446,8 @@
         </property>
       </activation>
       <properties>
-        <hive.version>1.2.1000.2.6.4.0-91</hive.version>
+        <hive.version>3.0.0.3.0.0.2-SNAPSHOT</hive.version>
+        <spark.version>2.3.0.3.0.0.2-SNAPSHOT</spark.version>
       </properties>
     </profile>
 

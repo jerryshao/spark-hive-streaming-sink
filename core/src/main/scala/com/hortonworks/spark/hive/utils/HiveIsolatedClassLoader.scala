@@ -93,7 +93,9 @@ class HiveIsolatedClassLoader(urls: Array[URL], baseClassLoader: ClassLoader)
   }
 
   private def isHiveClass(name: String): Boolean = {
-    name.startsWith("org.apache.hadoop.hive.") || name.startsWith("org.apache.hive.")
+    name.startsWith("org.apache.hadoop.hive.") ||
+      name.startsWith("org.apache.hive.") ||
+      name.startsWith("org.apache.orc.")
   }
 
   private def classToPath(name: String): String =

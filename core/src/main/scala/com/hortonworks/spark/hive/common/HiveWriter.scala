@@ -63,7 +63,7 @@ class HiveWriter(
   private var isTransactionBegin = false
 
   def beginTransaction(): Unit = {
-    if (txnBatch != null && call[Int](txnBatch, "remainingTransactins") == 0) {
+    if (txnBatch != null && call[Int](txnBatch, "remainingTransactions") == 0) {
       call[Unit](txnBatch, "close")
       txnBatch = null
     }
