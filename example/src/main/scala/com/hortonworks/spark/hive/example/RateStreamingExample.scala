@@ -32,9 +32,10 @@ import org.apache.spark.sql.streaming.Trigger
 object RateStreamingExample {
 
   def main(args: Array[String]): Unit = {
-    if (args.length < 1 || args.length > 2) {
+    if (args.length < 1 || args.length > 4) {
       // scalastyle:off println
-      System.err.println(s"Usage: RateStreamingExample <metastore uri> [continuous?]")
+      System.err.println(s"Usage: RateStreamingExample <metastore uri> [principal] " +
+        s"[keytab] [continuous?]")
       // scalastyle:on println
       System.exit(1)
     }
@@ -42,9 +43,14 @@ object RateStreamingExample {
     val metastoreUri = args(0)
     val continuous = if (args.length == 2) {
       args(1) == "continuous"
+    } else if (args.length == 4) {
+      args(3) == "continuous"
     } else {
       false
     }
+
+    val principal = if (args.length >= 3) args(1) else null
+    val keytab = if (args.length >= 3) args(2) else null
 
     val sparkConf = new SparkConf()
       .set("spark.sql.streaming.checkpointLocation", "./checkpoint")
@@ -59,12 +65,19 @@ object RateStreamingExample {
       .option("rowsPerSecond", "1")
       .load()
 
-    val query = rate.select("value")
+    val writer = rate.select("value")
       .writeStream
       .format("hive-streaming")
       .option("metastore", metastoreUri)
       .option("db", "default")
       .option("table", "rate")
+
+    if (principal != null && keytab != null) {
+      writer.option("principal", principal)
+      writer.option("keytab", keytab)
+    }
+
+    val query = writer
       .queryName("rate-hive-streaming")
       .trigger(if (continuous) Trigger.Continuous(3000L) else Trigger.ProcessingTime(3000L))
       .start()

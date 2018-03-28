@@ -23,15 +23,16 @@ import javax.annotation.Nullable
 import org.apache.hadoop.security.UserGroupInformation
 import org.apache.spark.sql.sources.v2.DataSourceOptions
 
+import com.hortonworks.spark.hive.utils.Logging
+
 class HiveOptions private (
     val metastoreUri: String,
     val dbName: String,
-    val tableName: String) {
+    val tableName: String) extends Logging {
 
   var txnPerBatch = 100
   var batchSize = 10000
   var autoCreatePartitions = true
-  private var ugi: UserGroupInformation = null
 
   private var principal: String = null
   private var keytab: String = null
@@ -67,7 +68,9 @@ class HiveOptions private (
         throw new IllegalArgumentException(s"keytab file $keytab is not existed or unreadable")
       }
 
-      UserGroupInformation.loginUserFromKeytabAndReturnUGI(principal, keytab)
+      val ugi = UserGroupInformation.loginUserFromKeytabAndReturnUGI(principal, keytab)
+      logInfo(s"UGI $ugi with princial $principal and keytab $keytab")
+      ugi
     }
   }
 }

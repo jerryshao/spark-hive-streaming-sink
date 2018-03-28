@@ -17,6 +17,8 @@
 
 package com.hortonworks.spark.hive.common
 
+import java.security.PrivilegedExceptionAction
+
 import org.apache.hadoop.security.UserGroupInformation
 
 import com.hortonworks.spark.hive.utils.Logging
@@ -41,13 +43,15 @@ class HiveWriter(
     .invoke(hiveEndPoint, hiveOptions.autoCreatePartitions: java.lang.Boolean, hiveConf, ugi)
 
   // TODO. for now we only support to write JSON String to Hive Streaming.
-  private val writer =
-    Class.forName("org.apache.hive.hcatalog.streaming.StrictJsonWriter", true, isolatedClassLoader)
-    .getConstructor(
-      Class.forName("org.apache.hive.hcatalog.streaming.HiveEndPoint", true, isolatedClassLoader),
-      Class.forName("org.apache.hadoop.hive.conf.HiveConf", true, isolatedClassLoader))
-    .newInstance(hiveEndPoint, hiveConf)
-    .asInstanceOf[Object]
+  private val writer = if (ugi == null) {
+    createWriter()
+  } else {
+    ugi.doAs(new PrivilegedExceptionAction[Object] {
+      override def run(): Object = {
+        createWriter()
+      }
+    })
+  }
 
   private var txnBatch: Object = null
 
@@ -61,6 +65,15 @@ class HiveWriter(
   private var _totalRecords = 0
 
   private var isTransactionBegin = false
+
+  private def createWriter(): Object = {
+    Class.forName("org.apache.hive.hcatalog.streaming.StrictJsonWriter", true, isolatedClassLoader)
+      .getConstructor(
+        Class.forName("org.apache.hive.hcatalog.streaming.HiveEndPoint", true, isolatedClassLoader),
+        Class.forName("org.apache.hadoop.hive.conf.HiveConf", true, isolatedClassLoader))
+      .newInstance(hiveEndPoint, hiveConf)
+      .asInstanceOf[Object]
+  }
 
   def beginTransaction(): Unit = {
     if (txnBatch != null && call[Int](txnBatch, "remainingTransactions") == 0) {
