@@ -17,7 +17,7 @@
 
 package com.hortonworks.spark.hive
 
-import java.util.{Map => JMap, List => JList}
+import java.util.{List => JList, Map => JMap}
 import java.util.concurrent.{Executors, TimeUnit}
 
 import scala.collection.JavaConverters._
@@ -29,7 +29,7 @@ import org.apache.spark.sql.sources.v2.writer.{DataWriter, WriterCommitMessage}
 import org.json4s.{DefaultFormats, Extraction}
 import org.json4s.jackson.JsonMethods._
 
-import com.hortonworks.spark.hive.common.{CachedHiveWriters, HiveOptions, HiveWriter}
+import com.hortonworks.spark.hive.common.{CachedHiveWriters, CachedKey, HiveOptions, HiveWriter}
 import com.hortonworks.spark.hive.utils.Logging
 
 case object HiveStreamWriterCommitMessage extends WriterCommitMessage
@@ -47,8 +47,9 @@ class HiveStreamDataWriter(
 
   private val hiveOptions =
     HiveOptions.fromDataSourceOptions(new DataSourceOptions(dataSourceOptionsMap))
+  private val ugi = hiveOptions.getUGI()
 
-  private val inUseWriters = new mutable.HashMap[Object, HiveWriter]()
+  private val inUseWriters = new mutable.HashMap[CachedKey, HiveWriter]()
 
   private val executorService = Executors.newSingleThreadScheduledExecutor()
   executorService.scheduleAtFixedRate(new Runnable {
@@ -77,18 +78,24 @@ class HiveStreamDataWriter(
         hiveOptions.metastoreUri, hiveOptions.dbName, hiveOptions.tableName, partitionValues.asJava)
       .asInstanceOf[Object]
 
+    val key = CachedKey(
+      hiveOptions.metastoreUri, hiveOptions.dbName, hiveOptions.tableName, partitionValues)
+
     def getNewWriter(): HiveWriter = {
       val writer = CachedHiveWriters.getOrCreate(
-        hiveEndPoint, hiveOptions, hiveOptions.getUGI(), isolatedClassLoader)
+        key, hiveEndPoint, hiveOptions, ugi, isolatedClassLoader)
       writer.beginTransaction()
       writer
     }
-    val writer = inUseWriters.getOrElseUpdate(hiveEndPoint, getNewWriter())
+    val writer = inUseWriters.getOrElseUpdate(key, {
+      logDebug(s"writer for $key not found in local cache")
+      getNewWriter()
+    })
 
     val jRow = Extraction.decompose(columnName.map { col => col -> row.getAs(col) }.toMap)
     val jString = compact(render(jRow))
 
-    logInfo(s"Write JSON row ${pretty(render(jRow))} into Hive Streaming")
+    logDebug(s"Write JSON row ${pretty(render(jRow))} into Hive Streaming")
     writer.write(jString.getBytes("UTF-8"))
 
     if (writer.totalRecords() >= hiveOptions.batchSize) {
@@ -107,9 +114,10 @@ class HiveStreamDataWriter(
   }
 
   override def commit(): WriterCommitMessage = withClassLoader {
-    inUseWriters.foreach { case (_, writer) =>
+    inUseWriters.foreach { case (key, writer) =>
       writer.commitTransaction()
       CachedHiveWriters.recycle(writer)
+      logDeug(s"Recycle writer $writer for $key in global cache")
     }
     inUseWriters.clear()
     executorService.shutdown()

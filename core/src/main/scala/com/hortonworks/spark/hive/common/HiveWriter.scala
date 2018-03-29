@@ -24,7 +24,8 @@ import org.apache.hadoop.security.UserGroupInformation
 import com.hortonworks.spark.hive.utils.Logging
 
 class HiveWriter(
-    val hiveEndPoint: Object,
+    val key: CachedKey,
+    hiveEndPoint: Object,
     hiveOptions: HiveOptions,
     ugi: UserGroupInformation,
     isolatedClassLoader: ClassLoader) extends Logging {

@@ -28,11 +28,13 @@ import org.apache.hadoop.security.UserGroupInformation
 
 import com.hortonworks.spark.hive.utils.Logging
 
+case class CachedKey(metastoreUri: String, db: String, table: String, partitionCols: Seq[String])
+
 object CachedHiveWriters extends Logging {
 
   private val cacheExpireTimeout: Long = TimeUnit.MINUTES.toMillis(10)
 
-  private val cache = new mutable.HashMap[Object, mutable.Queue[HiveWriter]]()
+  private val cache = new mutable.HashMap[CachedKey, mutable.Queue[HiveWriter]]()
 
   private val executorService = Executors.newSingleThreadScheduledExecutor()
   executorService.scheduleAtFixedRate(new Runnable {
@@ -53,25 +55,27 @@ object CachedHiveWriters extends Logging {
   })
 
   def getOrCreate(
+      key: CachedKey,
       hiveEndPoint: Object,
       hiveOptions: HiveOptions,
       @Nullable ugi: UserGroupInformation,
       isolatedClassLoader: ClassLoader): HiveWriter = {
     val writer = CachedHiveWriters.synchronized {
-      val queue = cache.getOrElseUpdate(hiveEndPoint, new mutable.Queue[HiveWriter]())
+      val queue = cache.getOrElseUpdate(key, new mutable.Queue[HiveWriter]())
       if (queue.isEmpty) {
         None
       } else {
+        logDebug(s"Found writer for $key in global cache")
         Some(queue.dequeue())
       }
     }
 
-    writer.getOrElse(new HiveWriter(hiveEndPoint, hiveOptions, ugi, isolatedClassLoader))
+    writer.getOrElse(new HiveWriter(key, hiveEndPoint, hiveOptions, ugi, isolatedClassLoader))
   }
 
   def recycle(hiveWriter: HiveWriter): Unit = {
     CachedHiveWriters.synchronized {
-      cache.getOrElseUpdate(hiveWriter.hiveEndPoint, new mutable.Queue[HiveWriter]())
+      cache.getOrElseUpdate(hiveWriter.key, new mutable.Queue[HiveWriter]())
         .enqueue(hiveWriter)
     }
   }
@@ -109,6 +113,7 @@ object CachedHiveWriters extends Logging {
       cache.foreach { case (_, queue) =>
         queue.foreach(unusedWriters.append(_))
       }
+      cache.clear()
     }
 
     unusedWriters.foreach { w =>
