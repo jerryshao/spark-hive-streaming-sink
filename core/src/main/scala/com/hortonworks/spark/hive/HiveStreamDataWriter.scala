@@ -117,7 +117,7 @@ class HiveStreamDataWriter(
     inUseWriters.foreach { case (key, writer) =>
       writer.commitTransaction()
       CachedHiveWriters.recycle(writer)
-      logDeug(s"Recycle writer $writer for $key in global cache")
+      logDebug(s"Recycle writer $writer for $key in global cache")
     }
     inUseWriters.clear()
     executorService.shutdown()

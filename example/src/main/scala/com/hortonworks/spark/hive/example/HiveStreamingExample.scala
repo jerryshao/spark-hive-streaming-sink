@@ -32,14 +32,23 @@ import org.apache.spark.sql.SparkSession
 object HiveStreamingExample {
 
   def main(args: Array[String]): Unit = {
-    if (args.length != 3) {
+    if (args.length < 3 || args.length > 5) {
       // scalastyle:off println
-      System.err.println(s"Usage: HiveStreamingExample <socket host> <socket port> <metastore uri>")
+      System.err.println(s"Usage: HiveStreamingExample <socket host> <socket port>" +
+        s" <metastore uri> [principal] [keytab]")
       // scalastyle:on println
       System.exit(1)
     }
 
-    val Array(host, port, metastoreUri) = args
+    val host = args(0)
+    val port = args(1)
+    val metastoreUri = args(2)
+
+    val (principal, keytab) = if (args.length == 5) {
+      (args(3), args(4))
+    } else {
+      (null, null)
+    }
 
     val sparkConf = new SparkConf()
       .set("spark.sql.streaming.checkpointLocation", "./checkpoint")
@@ -57,7 +66,7 @@ object HiveStreamingExample {
       .load()
       .as[String]
 
-    val query = socket.map { s =>
+    val writer = socket.map { s =>
       val records = s.split(",")
       assert(records.length >= 4)
       (records(0).toInt, records(1), records(2), records(3))
@@ -68,6 +77,13 @@ object HiveStreamingExample {
       .option("metastore", metastoreUri)
       .option("db", "default")
       .option("table", "alerts")
+
+    if (principal != null && keytab != null) {
+      writer.option("principal", principal)
+        .option("keytab", keytab)
+    }
+
+    val query = writer
       .queryName("socket-hive-streaming")
       .start()
 
