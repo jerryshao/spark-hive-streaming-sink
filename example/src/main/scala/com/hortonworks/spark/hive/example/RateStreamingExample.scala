@@ -78,7 +78,6 @@ object RateStreamingExample {
     }
 
     val query = writer
-      .queryName("rate-hive-streaming")
       .trigger(if (continuous) Trigger.Continuous(3000L) else Trigger.ProcessingTime(3000L))
       .start()
 

@@ -49,7 +49,7 @@ object CachedHiveWriters extends Logging {
         clear()
         executorService.shutdown()
       } catch {
-        case NonFatal(e) => // swallow exceptions
+        case NonFatal(_) => // swallow exceptions
       }
     }
   })

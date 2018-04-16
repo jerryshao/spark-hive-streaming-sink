@@ -70,6 +70,7 @@ class HiveStreamDataWriter(
   }
 
   override def write(row: Row): Unit = withClassLoader {
+    // We assumed the type of partition column is String.
     val partitionValues = partitionCols.map { col => row.getAs[String](col) }
     val hiveEndPoint =
       Class.forName("org.apache.hive.hcatalog.streaming.HiveEndPoint", true, isolatedClassLoader)

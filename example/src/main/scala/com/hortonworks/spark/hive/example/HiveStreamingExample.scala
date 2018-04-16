@@ -83,10 +83,7 @@ object HiveStreamingExample {
         .option("keytab", keytab)
     }
 
-    val query = writer
-      .queryName("socket-hive-streaming")
-      .start()
-
+    val query = writer.start()
     query.awaitTermination()
 
     query.stop()

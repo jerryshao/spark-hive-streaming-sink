@@ -69,7 +69,7 @@ class HiveOptions private (
       }
 
       val ugi = UserGroupInformation.loginUserFromKeytabAndReturnUGI(principal, keytab)
-      logInfo(s"UGI $ugi with princial $principal and keytab $keytab")
+      logInfo(s"UGI $ugi with principal $principal and keytab $keytab")
       ugi
     }
   }

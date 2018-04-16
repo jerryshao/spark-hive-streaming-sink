@@ -43,7 +43,6 @@ class HiveWriter(
     classOf[UserGroupInformation])
     .invoke(hiveEndPoint, hiveOptions.autoCreatePartitions: java.lang.Boolean, hiveConf, ugi)
 
-  // TODO. for now we only support to write JSON String to Hive Streaming.
   private val writer = if (ugi == null) {
     createWriter()
   } else {
@@ -67,6 +66,7 @@ class HiveWriter(
 
   private var isTransactionBegin = false
 
+  // TODO. for now we only support to write JSON String to Hive Streaming.
   private def createWriter(): Object = {
     Class.forName("org.apache.hive.hcatalog.streaming.StrictJsonWriter", true, isolatedClassLoader)
       .getConstructor(
@@ -83,8 +83,8 @@ class HiveWriter(
     }
 
     if (txnBatch == null) {
-      txnBatch = call[Object](connection, "fetchTransactionBatch", Seq(classOf[Int],
-        Class.forName(
+      txnBatch = call[Object](connection, "fetchTransactionBatch",
+        Seq(classOf[Int], Class.forName(
           "org.apache.hive.hcatalog.streaming.RecordWriter", true, isolatedClassLoader)),
         Seq(hiveOptions.txnPerBatch: java.lang.Integer, writer))
       _lastCreated = System.currentTimeMillis()
